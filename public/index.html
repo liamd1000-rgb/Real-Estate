@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alpaca Trading Bot</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --card:    #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --blue:    #58a6ff;
+      --yellow:  #d29922;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 16px; font-weight: 600; }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Badges ──────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .badge.bullish  { background: rgba(63,185,80,0.15);   color: var(--green); border: 1px solid rgba(63,185,80,0.4); }
+    .badge.bearish  { background: rgba(248,81,73,0.15);   color: var(--red);   border: 1px solid rgba(248,81,73,0.4); }
+    .badge.unknown  { background: rgba(139,148,158,0.15); color: var(--muted); border: 1px solid var(--border); }
+    .badge.mkt-open { background: rgba(63,185,80,0.15);   color: var(--green); }
+    .badge.mkt-closed{ background: rgba(139,148,158,0.15);color: var(--muted); }
+
+    /* ── Layout ──────────────────────────────────────────── */
+    .page { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+
+    /* ── KPI strip ───────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .kpi {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 18px;
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .kpi-value {
+      font-size: 26px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .kpi-sub { font-size: 12px; color: var(--muted); }
+
+    /* ── Panels ──────────────────────────────────────────── */
+    .row { display: grid; gap: 14px; margin-bottom: 14px; }
+    .row.r-6-4  { grid-template-columns: 3fr 2fr; }
+    .row.r-half { grid-template-columns: 1fr 1fr; }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-head {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .panel-body { flex: 1; overflow-y: auto; }
+
+    .chart-wrap { padding: 16px; height: 280px; position: relative; }
+
+    /* ── Tables ──────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    th {
+      text-align: left;
+      padding: 9px 14px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(48,54,61,0.6);
+      font-variant-numeric: tabular-nums;
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    /* ── Activity feed ───────────────────────────────────── */
+    .activity-list { max-height: 360px; overflow-y: auto; }
+
+    .activity-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+      font-size: 12.5px;
+    }
+
+    .activity-row:last-child { border-bottom: none; }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 4px;
+      flex-shrink: 0;
+    }
+
+    .activity-body { flex: 1; line-height: 1.5; }
+    .activity-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Action tags ─────────────────────────────────────── */
+    .tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .tag.buy       { background: rgba(63,185,80,0.2);   color: var(--green); }
+    .tag.stop_hit  { background: rgba(248,81,73,0.2);   color: var(--red);   }
+    .tag.hold_open { background: rgba(88,166,255,0.2);  color: var(--blue);  }
+    .tag.hold      { background: rgba(139,148,158,0.15);color: var(--muted); }
+    .tag.skipped   { background: rgba(139,148,158,0.1); color: #6b7280;      }
+
+    /* ── Color utils ─────────────────────────────────────── */
+    .up   { color: var(--green); }
+    .down { color: var(--red);   }
+    .dim  { color: var(--muted); }
+
+    /* ── Empty state ─────────────────────────────────────── */
+    .empty { text-align: center; color: var(--muted); padding: 48px 16px; font-size: 13px; }
+
+    /* ── Scrollbar ───────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>Alpaca Paper Trading</h1>
+    <span class="badge unknown" id="regime-badge">—</span>
+    <span class="badge mkt-closed" id="market-badge">—</span>
+  </div>
+  <div class="header-right">
+    <span>Last run: <strong id="last-run">—</strong></span>
+    <span>Refreshing in <strong id="timer">30</strong>s</span>
+  </div>
+</header>
+
+<div class="page">
+
+  <!-- KPI strip -->
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Portfolio Value</div>
+      <div class="kpi-value" id="kpi-value">—</div>
+      <div class="kpi-sub" id="kpi-buying-power">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Total P&amp;L</div>
+      <div class="kpi-value" id="kpi-pl">—</div>
+      <div class="kpi-sub" id="kpi-pl-pct">since bot started</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Unrealized P&amp;L</div>
+      <div class="kpi-value" id="kpi-upl">—</div>
+      <div class="kpi-sub">across open positions</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Open Positions</div>
+      <div class="kpi-value" id="kpi-positions">—</div>
+      <div class="kpi-sub">5 max</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Entries / Exits</div>
+      <div class="kpi-value" id="kpi-trades">—</div>
+      <div class="kpi-sub" id="kpi-exits">—</div>
+    </div>
+  </div>
+
+  <!-- Chart + Positions -->
+  <div class="row r-6-4">
+    <div class="panel">
+      <div class="panel-head">Portfolio Value Over Time</div>
+      <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">Open Positions</div>
+      <div class="panel-body" id="positions-panel">
+        <div class="empty">No open positions</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity + Trade history -->
+  <div class="row r-half">
+    <div class="panel">
+      <div class="panel-head">Recent Activity</div>
+      <div class="panel-body activity-list" id="activity-panel">
+        <div class="empty">No activity yet — start the bot with <code>npm start</code></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">Trade History</div>
+      <div class="panel-body" id="trades-panel">
+        <div class="empty">No trades yet</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Formatting ──────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+const fmt = {
+  usd:  v => v == null ? '—' : '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}),
+  pl:   v => v == null ? '—' : (v >= 0 ? '+$' : '-$') + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}),
+  pct:  v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%',
+  time: ts => ts ? new Date(ts).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'}) : '—',
+  dt:   ts => ts ? new Date(ts).toLocaleString('en-US', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '—',
+};
+
+function cls(v)  { return v > 0 ? 'up' : v < 0 ? 'down' : 'dim'; }
+function tag(a)  { return `<span class="tag ${a}">${a.replace('_', ' ')}</span>`; }
+function dot(c)  { return `<div class="dot" style="background:${c}"></div>`; }
+
+const ACTION_COLOR = {
+  buy: '#3fb950', stop_hit: '#f85149', hold_open: '#58a6ff',
+  hold: '#555', skipped: '#444', error: '#f85149',
+};
+
+// ── Chart ───────────────────────────────────────────────────────────────────
+let portfolioChart = null;
+
+function initChart(data) {
+  const ctx = $('chart').getContext('2d');
+  const labels = data.map(d => new Date(d.t));
+  const values = data.map(d => d.v);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 280);
+  grad.addColorStop(0, 'rgba(88,166,255,0.25)');
+  grad.addColorStop(1, 'rgba(88,166,255,0)');
+
+  portfolioChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: '#58a6ff',
+        backgroundColor: grad,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: '#58a6ff',
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c2433',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#8b949e',
+          bodyColor: '#e6edf3',
+          padding: 10,
+          callbacks: {
+            title: items => new Date(items[0].parsed.x).toLocaleString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+            label: item => '  Portfolio: $' + item.parsed.y.toLocaleString('en-US', {minimumFractionDigits: 2}),
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { displayFormats: { minute: 'h:mm a', hour: 'h a' } },
+          ticks: { color: '#6b7280', maxTicksLimit: 8, maxRotation: 0 },
+          grid: { color: 'rgba(48,54,61,0.6)' },
+          border: { color: 'transparent' },
+        },
+        y: {
+          ticks: {
+            color: '#6b7280',
+            callback: v => '$' + (v / 1000).toFixed(0) + 'k',
+          },
+          grid: { color: 'rgba(48,54,61,0.6)' },
+          border: { color: 'transparent' },
+        }
+      }
+    }
+  });
+}
+
+function updateChart(data) {
+  if (!data.length) return;
+  if (!portfolioChart) { initChart(data); return; }
+  portfolioChart.data.labels = data.map(d => new Date(d.t));
+  portfolioChart.data.datasets[0].data = data.map(d => d.v);
+  portfolioChart.update('none');
+}
+
+// ── Renderers ───────────────────────────────────────────────────────────────
+function renderKPIs(s, h) {
+  // Portfolio
+  $('kpi-value').textContent = fmt.usd(s.account.value);
+  $('kpi-buying-power').textContent = fmt.usd(s.account.buyingPower) + ' buying power';
+
+  // Total P&L
+  if (s.startingValue) {
+    const pl    = s.account.value - s.startingValue;
+    const plPct = (pl / s.startingValue) * 100;
+    const el = $('kpi-pl');
+    el.textContent = fmt.pl(pl);
+    el.className = 'kpi-value ' + cls(pl);
+    $('kpi-pl-pct').textContent = fmt.pct(plPct) + ' since start';
+  }
+
+  // Unrealized P&L
+  const upl = s.positions.reduce((acc, p) => acc + p.unrealizedPL, 0);
+  const uplEl = $('kpi-upl');
+  uplEl.textContent = fmt.pl(upl);
+  uplEl.className = 'kpi-value ' + cls(upl);
+
+  // Positions count
+  $('kpi-positions').textContent = s.positions.length + ' / 5';
+
+  // Trades
+  $('kpi-trades').textContent = h.totalBuys + ' entries';
+  $('kpi-exits').textContent  = h.totalExits + ' stop exits';
+
+  // Regime badge
+  const rb = $('regime-badge');
+  rb.textContent = s.regime;
+  rb.className = 'badge ' + (s.regime === 'BULLISH' ? 'bullish' : s.regime === 'BEARISH' ? 'bearish' : 'unknown');
+
+  // Market badge
+  const mb = $('market-badge');
+  mb.textContent = s.marketOpen ? 'Market Open' : 'Market Closed';
+  mb.className = 'badge ' + (s.marketOpen ? 'mkt-open' : 'mkt-closed');
+
+  // Last run
+  $('last-run').textContent = fmt.time(s.lastRun);
+}
+
+function renderPositions(positions) {
+  const el = $('positions-panel');
+  if (!positions.length) {
+    el.innerHTML = '<div class="empty">No open positions</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th><th>Qty</th><th>Entry</th>
+          <th>Price</th><th>P&amp;L</th><th>Stop</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${positions.map(p => {
+          const stopDistLabel = p.stopDistPct != null
+            ? `<div class="dim" style="font-size:11px">${p.stopDistPct.toFixed(1)}% away</div>`
+            : '';
+          return `
+          <tr>
+            <td><strong>${p.symbol}</strong></td>
+            <td>${p.qty}</td>
+            <td class="dim">${fmt.usd(p.avgEntry)}</td>
+            <td>${fmt.usd(p.currentPrice)}</td>
+            <td class="${cls(p.unrealizedPL)}">
+              ${fmt.pl(p.unrealizedPL)}
+              <div style="font-size:11px">${fmt.pct(p.unrealizedPLPct)}</div>
+            </td>
+            <td>
+              ${p.stop ? fmt.usd(p.stop) : '—'}
+              ${stopDistLabel}
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderActivity(recentRuns) {
+  const el = $('activity-panel');
+  const items = [];
+
+  for (const run of recentRuns) {
+    for (const d of run.decisions) {
+      if (!['buy','stop_hit','hold_open'].includes(d.action)) continue;
+      let text = '';
+      if (d.action === 'buy')
+        text = `Bought ${d.qty} <strong>${d.symbol}</strong> @ ${fmt.usd(d.price)} — stop ${fmt.usd(d.stop)}`;
+      else if (d.action === 'stop_hit')
+        text = `Stop hit — sold <strong>${d.symbol}</strong> @ ${fmt.usd(d.price)}`;
+      else if (d.action === 'hold_open')
+        text = `Holding <strong>${d.symbol}</strong> @ ${fmt.usd(d.price)} — stop ${fmt.usd(d.stop)}`;
+
+      items.push({
+        color: ACTION_COLOR[d.action] ?? '#555',
+        text, action: d.action,
+        ts: run.timestamp,
+      });
+    }
+  }
+
+  if (!items.length) {
+    el.innerHTML = '<div class="empty">No actionable events yet</div>';
+    return;
+  }
+
+  el.innerHTML = items.map(i => `
+    <div class="activity-row">
+      ${dot(i.color)}
+      <div class="activity-body">
+        <div>${i.text}</div>
+        <div class="activity-time">${fmt.dt(i.ts)}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderTrades(trades) {
+  const el = $('trades-panel');
+  if (!trades.length) {
+    el.innerHTML = '<div class="empty">No trades yet</div>';
+    return;
+  }
+  const rows = [...trades].reverse().slice(0, 40);
+  el.innerHTML = `
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Symbol</th><th>Action</th><th>Qty</th><th>Price</th><th>Stop</th></tr>
+      </thead>
+      <tbody>
+        ${rows.map(t => `
+        <tr>
+          <td class="dim">${fmt.dt(t.timestamp)}</td>
+          <td><strong>${t.symbol}</strong></td>
+          <td>${tag(t.action)}</td>
+          <td>${t.qty ?? '—'}</td>
+          <td>${fmt.usd(t.price)}</td>
+          <td class="dim">${t.stop ? fmt.usd(t.stop) : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── Data fetch ───────────────────────────────────────────────────────────────
+async function refresh() {
+  try {
+    const [sRes, hRes] = await Promise.all([fetch('/api/status'), fetch('/api/history')]);
+    const [s, h] = await Promise.all([sRes.json(), hRes.json()]);
+    if (s.error) throw new Error(s.error);
+    renderKPIs(s, h);
+    updateChart(h.chartData);
+    renderPositions(s.positions);
+    renderActivity(h.recentRuns);
+    renderTrades(h.trades);
+  } catch (e) {
+    console.error('Refresh error:', e);
+  }
+}
+
+// ── Countdown ────────────────────────────────────────────────────────────────
+let countdown = 30;
+setInterval(() => {
+  countdown--;
+  $('timer').textContent = countdown;
+  if (countdown <= 0) { refresh(); countdown = 30; }
+}, 1000);
+
+refresh();
+</script>
+</body>
+</html>
