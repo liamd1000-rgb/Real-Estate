@@ -1,0 +1,4 @@
+node_modules/
+.env
+stops.json
+trade-log.json

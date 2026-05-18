@@ -1,0 +1,27 @@
+{
+  "name": "real-estate",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liamd1000-rgb/Real-Estate.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/liamd1000-rgb/Real-Estate/issues"
+  },
+  "homepage": "https://github.com/liamd1000-rgb/Real-Estate#readme",
+  "dependencies": {
+    "@alpacahq/alpaca-trade-api": "^3.1.3",
+    "dotenv": "^17.4.2",
+    "node-cron": "^4.2.1"
+  }
+}
