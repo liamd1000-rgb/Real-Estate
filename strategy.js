@@ -49,7 +49,14 @@ function positionSize(accountValue, entryPrice, stopPrice) {
 }
 
 // Returns { signal: 'buy'|'hold', reason?, stopPrice?, ma50?, ma200?, rsiVal?, atrValue? }
-function getBuySignal(bars) {
+// `opts` lets callers (e.g. the backtest) sweep filter thresholds; defaults match the live bot's rules.
+function getBuySignal(bars, opts = {}) {
+  const {
+    pullbackMin = -0.03, pullbackMax = 0.05,
+    closePosMin = 0.6,
+    rsiMin = 35, rsiMax = 65,
+  } = opts;
+
   if (bars.length < 201) return { signal: 'hold', reason: 'insufficient data' };
 
   const closes = bars.map(b => b.close);
@@ -64,22 +71,22 @@ function getBuySignal(bars) {
     return { signal: 'hold', reason: `price below MA50=$${ma50?.toFixed(2)} or MA200=$${ma200?.toFixed(2)}` };
   }
 
-  // Rule 2a: prior bar's low touched the 50-day MA (within -2% to +3%)
+  // Rule 2a: prior bar's low touched the 50-day MA (within pullbackMin/pullbackMax)
   const pctFromMa50 = (prev.low - ma50) / ma50;
-  if (pctFromMa50 < -0.02 || pctFromMa50 > 0.03) {
+  if (pctFromMa50 < pullbackMin || pctFromMa50 > pullbackMax) {
     return { signal: 'hold', reason: `no MA50 pullback (prev low ${(pctFromMa50 * 100).toFixed(1)}% from MA50)` };
   }
 
-  // Rule 2b: strong bounce candle — close in upper 60% of day's range
+  // Rule 2b: strong bounce candle — close in upper (1-closePosMin) of day's range
   const range    = last.high - last.low;
   const closePos = range > 0 ? (close - last.low) / range : 0;
-  if (closePos < 0.6) {
+  if (closePos < closePosMin) {
     return { signal: 'hold', reason: `weak candle (close at ${(closePos * 100).toFixed(0)}% of range)` };
   }
 
-  // Rule 2c: RSI between 40–60 (not overbought, not oversold — mid-range bounce)
+  // Rule 2c: RSI between rsiMin–rsiMax (not overbought, not oversold — mid-range bounce)
   const rsiVal = rsi(closes, 14);
-  if (rsiVal === null || rsiVal < 40 || rsiVal > 60) {
+  if (rsiVal === null || rsiVal < rsiMin || rsiVal > rsiMax) {
     return { signal: 'hold', reason: `RSI out of range (${rsiVal?.toFixed(1)})` };
   }
 
