@@ -39,10 +39,13 @@ function trailingStopPrice(currentStop, currentPrice, atrValue) {
 }
 
 // Risk 1% of account per trade: shares = (account * 0.01) / (entry - stop)
+// Fractional shares (rounded down to 4 decimal places, Alpaca's fractional precision)
+// so small accounts still get correctly risk-sized positions instead of rounding to 0.
 function positionSize(accountValue, entryPrice, stopPrice) {
   const riskPerShare = entryPrice - stopPrice;
   if (riskPerShare <= 0) return 0;
-  return Math.floor((accountValue * 0.01) / riskPerShare);
+  const rawQty = (accountValue * 0.01) / riskPerShare;
+  return Math.floor(rawQty * 10000) / 10000;
 }
 
 // Returns { signal: 'buy'|'hold', reason?, stopPrice?, ma50?, ma200?, rsiVal?, atrValue? }

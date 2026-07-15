@@ -6,6 +6,7 @@ const { sma, atr, trailingStopPrice, positionSize, getBuySignal } = require('./s
 
 const SYMBOLS        = ['AAPL', 'MSFT', 'TSLA', 'NVDA', 'SPY'];
 const MAX_POSITIONS  = 5;
+const MIN_NOTIONAL   = 1;  // Alpaca's minimum fractional order value ($)
 const STOPS_FILE     = path.join(__dirname, 'stops.json');
 const TRADE_LOG_FILE = path.join(__dirname, 'trade-log.json');
 const MAX_LOG_ENTRIES = 200;  // ~16 hours of 5-min runs
@@ -68,6 +69,7 @@ async function getBars(symbol, days = 365) {
     end:   end.toISOString(),
     timeframe: '1Day',
     limit: days,
+    feed: 'iex',
   });
 
   for await (const bar of resp) {
@@ -111,7 +113,22 @@ async function hasEarningsSoon(symbol) {
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
+let botRunning = false;
+
 async function runBot() {
+  if (botRunning) {
+    console.log('Previous run still in progress — skipping tick.');
+    return;
+  }
+  botRunning = true;
+  try {
+    await _runBot();
+  } finally {
+    botRunning = false;
+  }
+}
+
+async function _runBot() {
   const runTimestamp = new Date().toISOString();
   console.log(`\n[${runTimestamp}] Running bot...`);
 
@@ -137,8 +154,15 @@ async function runBot() {
     return;
   }
 
+  // Fetch all bars and positions in parallel
+  const [allBarsArr, allPositions] = await Promise.all([
+    Promise.all(SYMBOLS.map(s => getBars(s, 365))),
+    getAllPositions(),
+  ]);
+  const barsMap = Object.fromEntries(SYMBOLS.map((s, i) => [s, allBarsArr[i]]));
+
   // Market regime filter — SPY must be above its 200-day MA
-  const spyBars  = await getBars('SPY', 365);
+  const spyBars  = barsMap['SPY'];
   const spyClose = spyBars.at(-1)?.close;
   const spyMa200 = sma(spyBars.map(b => b.close), 200);
   const regimeBullish = !spyMa200 || spyClose >= spyMa200;
@@ -146,8 +170,6 @@ async function runBot() {
   console.log(`SPY: $${spyClose?.toFixed(2)} | 200-day MA: $${spyMa200?.toFixed(2)} | Regime: ${regimeBullish ? 'BULLISH' : 'BEARISH'}`);
   if (!regimeBullish) console.log('Bearish regime — existing stop-losses still managed, no new entries.');
 
-  // Build a map of current positions
-  const allPositions = await getAllPositions();
   const positionMap  = Object.fromEntries(allPositions.map(p => [p.symbol, p]));
   let openCount      = allPositions.length;
 
@@ -157,8 +179,8 @@ async function runBot() {
   for (const symbol of SYMBOLS) {
     try {
       const position = positionMap[symbol];
-      const held     = position ? Math.abs(parseInt(position.qty)) : 0;
-      const bars     = symbol === 'SPY' ? spyBars : await getBars(symbol, 365);
+      const held     = position ? Math.abs(parseFloat(position.qty)) : 0;
+      const bars     = barsMap[symbol];
       const closes   = bars.map(b => b.close);
       const price    = closes.at(-1);
       const atrValue = atr(bars, 14);
@@ -175,7 +197,9 @@ async function runBot() {
         stops[symbol]  = newStop;
 
         if (price <= newStop) {
-          const order = await placeOrder(symbol, 'sell', held);
+          // Sell Alpaca's own reported qty (string) rather than our reparsed float,
+          // so fractional positions close out exactly instead of hitting rounding mismatches.
+          const order = await placeOrder(symbol, 'sell', position.qty);
           console.log(`${symbol}: STOP HIT — SELL ${held} shares | price=$${price?.toFixed(2)} | stop=$${newStop.toFixed(2)} | order=${order.id}`);
           decisions.push({ symbol, action: 'stop_hit', held, price, stop: newStop, orderId: order.id });
           delete stops[symbol];
@@ -216,9 +240,9 @@ async function runBot() {
       const qty  = positionSize(accountValue, price, stopPrice);
       const cost = qty * price;
 
-      if (qty < 1) {
-        console.log(`  -> Skipped: position size rounds to 0`);
-        decisions.push({ symbol, action: 'skipped', reason: 'position size 0', price });
+      if (qty <= 0 || cost < MIN_NOTIONAL) {
+        console.log(`  -> Skipped: position size too small ($${cost.toFixed(2)} < $${MIN_NOTIONAL} minimum)`);
+        decisions.push({ symbol, action: 'skipped', reason: 'position size too small', price });
         continue;
       }
       if (cost > buyingPower) {
@@ -227,7 +251,8 @@ async function runBot() {
         continue;
       }
 
-      const order   = await placeOrder(symbol, 'buy', qty);
+      // Send as a decimal string — Alpaca expects fractional qty as a string, not a float.
+      const order   = await placeOrder(symbol, 'buy', qty.toString());
       stops[symbol] = stopPrice;
       openCount++;
       const risk = (qty * (price - stopPrice)).toFixed(2);
